@@ -1,30 +1,74 @@
-# Crypto Hunter - MERN Stack Web App
+# 💹 Crypto Tracker
 
+A sleek and powerful React-based cryptocurrency tracking web app where you can monitor live crypto prices, manage your portfolio, track your watchlist, and convert currencies with ease.
 
-![Screenshot (61)](https://github.com/kumarAmar882/crypto_hunting/assets/65217388/41db7772-41b5-41b8-9ca2-eef255853e6e)
+---
 
+## 🚀 Features
 
-  **Crypto Hunter is a full-stack web application for tracking and analyzing cryptocurrency data. This project is built using the MERN (MongoDB, Express.js, React, Node.js) stack.**
+- 🌐 Real-time prices of 100+ cryptocurrencies (powered by CoinMarketCap API)
+- 🔍 Search and sort cryptocurrencies by name or symbol
+- 📊 Detailed coin view with charts and statistics
+- ⭐ Add and manage your **Watchlist**
+- 📈 **Portfolio Manager**: Track your holdings and calculate net worth
+- 🔁 **Crypto Converter**: Convert between different coins and currencies
+- 🔐 Firebase Authentication with Google login
+- 🌙 Clean and responsive UI with dark mode-inspired styling
 
-## Features
+---
 
-- **User Authentication**: User registration and login functionality with JWT authentication.
-- **Cryptocurrency Data**: Display real-time cryptocurrency data including prices, charts, and historical data.
-- **Favorites**: Users can add cryptocurrencies to their favorites list.
-- **News Section**: Display the latest news related to cryptocurrencies.
-- **User Profiles**: Users can create and manage their profiles.
-- **Responsive Design**: A mobile-friendly interface for easy access on various devices.
+## 🖼️ Screenshots
 
-## Screenshots
+> **Note:** Screenshots are located in the `/assets/screenshots/` folder (you can change the path based on where you upload).
 
+### 🔸 Home Page
 
-![Screenshot (62)](https://github.com/kumarAmar882/crypto_hunting/assets/65217388/437ea53e-3a40-4bf8-9918-1e4983a90b64)
+![Home Page 1](assets/screenshots/home1.png)  
+![Home Page 2](assets/screenshots/home2.png)
 
-![Screenshot (63)](https://github.com/kumarAmar882/crypto_hunting/assets/65217388/535550ec-edfd-4a80-9cf3-81b9109d1075)
+### 🔸 Portfolio Page
 
-![Screenshot (64)](https://github.com/kumarAmar882/crypto_hunting/assets/65217388/81fbaff8-1825-482a-bafb-ad37927160e1)
+![Portfolio Page](assets/screenshots/portfolio.png)
 
-![Screenshot (65)](https://github.com/kumarAmar882/crypto_hunting/assets/65217388/9541ce69-bac2-45ef-929b-e266eff8cd4b)
+### 🔸 Converter Page
 
+![Converter Page](assets/screenshots/converter.png)
 
+### 🔸 Watchlist Page
 
+![Watchlist Page](assets/screenshots/watchlist.png)
+
+---
+
+## ⚙️ Tech Stack
+
+- **Frontend**: React.js, TailwindCSS, Bootstrap, Material-UI  
+- **Authentication**: Firebase  
+- **Crypto API**: CoinMarketCap  
+- **State Management**: React Context API  
+- **Hosting**: (You can add GitHub Pages / Firebase / Vercel here if hosted)
+
+---
+
+## 🧠 How to Run Locally
+
+### 🪟 Windows & 🍎 macOS
+
+> Make sure you have **Node.js** and **npm** installed.
+
+1. **Clone the Repository**
+   ```bash
+   git clone https://github.com/aryxnn/crypto-tracker.git
+   cd crypto-tracker
+2. **Install Dependencies**
+   npm install
+3. **Add Firebase Configuration**
+   Create a .env file in the root directory and add your Firebase credentials like:
+   REACT_APP_FIREBASE_API_KEY=your_api_key
+   REACT_APP_FIREBASE_AUTH_DOMAIN=your_auth_domain
+   REACT_APP_FIREBASE_PROJECT_ID=your_project_id
+4. **Start the App**
+   npm start
+
+**The app should now be running at:**
+👉 http://localhost:3000
