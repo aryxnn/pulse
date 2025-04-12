@@ -44,9 +44,8 @@ A sleek and powerful React-based cryptocurrency tracking web app where you can m
 
 - **Frontend**: React.js, TailwindCSS, Bootstrap, Material-UI  
 - **Authentication**: Firebase  
-- **Crypto API**: CoinMarketCap  
+- **Crypto API**: CoinGecko
 - **State Management**: React Context API  
-- **Hosting**: (You can add GitHub Pages / Firebase / Vercel here if hosted)
 
 ---
 
@@ -63,10 +62,7 @@ A sleek and powerful React-based cryptocurrency tracking web app where you can m
 2. **Install Dependencies**
    npm install
 3. **Add Firebase Configuration**
-   Create a .env file in the root directory and add your Firebase credentials like:
-   REACT_APP_FIREBASE_API_KEY=your_api_key
-   REACT_APP_FIREBASE_AUTH_DOMAIN=your_auth_domain
-   REACT_APP_FIREBASE_PROJECT_ID=your_project_id
+   pre> ``` REACT_APP_FIREBASE_API_KEY=your_api_key REACT_APP_FIREBASE_AUTH_DOMAIN=your_auth_domain REACT_APP_FIREBASE_PROJECT_ID=your_project_id REACT_APP_FIREBASE_STORAGE_BUCKET=your_storage_bucket REACT_APP_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id REACT_APP_FIREBASE_APP_ID=your_app_id ``` </pre>
 4. **Start the App**
    npm start
 
