@@ -6,7 +6,7 @@ A sleek and powerful React-based cryptocurrency tracking web app where you can m
 
 ## 🚀 Features
 
-- 🌐 Real-time prices of 100+ cryptocurrencies (powered by CoinMarketCap API)
+- 🌐 Real-time prices of 100+ cryptocurrencies (powered by CoinGecko API)
 - 🔍 Search and sort cryptocurrencies by name or symbol
 - 📊 Detailed coin view with charts and statistics
 - ⭐ Add and manage your **Watchlist**
