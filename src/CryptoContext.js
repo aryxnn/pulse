@@ -45,10 +45,14 @@ const CryptoContext = ({ children }) => {
    })
    const fetchCoins = async () => {
       setLoading(true);
-      const { data } = await axios.get(CoinList(currency));
-      setCoins(data);
-      setLoading(false);
-
+      try {
+         const { data } = await axios.get(CoinList(currency));
+         setCoins(data);
+      } catch (err) {
+         console.error("Failed to fetch coins:", err);
+      } finally {
+         setLoading(false);
+      }
    }
    useEffect(() => {
 

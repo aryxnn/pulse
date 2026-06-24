@@ -37,7 +37,7 @@ app = FastAPI(lifespan=lifespan)
 # Allow CORS for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,31 +48,27 @@ async def get_ohlcv_data(symbol: str = "BTCUSDT", limit: int = 100):
     data = await get_ohlcv(symbol, limit)
     return data
 
-@app.websocket("/ws/orderbook/BTCUSDT")
-async def websocket_endpoint(websocket: WebSocket):
+@app.get("/orderbook")
+async def get_orderbook():
+    snapshot = await redis_client.get("orderbook_snapshot")
+    if snapshot:
+        return json.loads(snapshot)
+    return {"symbol": "BTCUSDT", "bids": [], "asks": [], "metrics": {}}
+
+@app.websocket("/ws/orderbook")
+async def websocket_orderbook(websocket: WebSocket):
     await websocket.accept()
-    logger.info("New WebSocket client connected.")
+    logger.info("New WebSocket client connected to /ws/orderbook.")
     
-    # Each WebSocket client connection must create its own Redis pubsub subscription
     pubsub = redis_client.pubsub()
-    await pubsub.subscribe("orderbook:BTCUSDT")
+    await pubsub.subscribe("orderbook_updates")
     
     try:
         while True:
-            # We listen to pubsub messages asynchronously
             message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
             if message:
                 payload_str = message["data"]
                 try:
-                    payload = json.loads(payload_str)
-                    
-                    # Latency tracking: timestamp is epoch seconds from binance_ws.py
-                    sent_time = payload.get("timestamp", 0)
-                    if sent_time > 0:
-                        now = time.time()
-                        latency_ms = (now - sent_time) * 1000.0
-                        logger.info(f"[Latency] Round-trip latency to client forward: {latency_ms:.2f} ms")
-                        
                     await websocket.send_text(payload_str)
                 except Exception as e:
                     logger.error(f"Error forwarding message to client: {e}")
@@ -80,7 +76,34 @@ async def websocket_endpoint(websocket: WebSocket):
             await asyncio.sleep(0.01)  # Cooperatively yield control
             
     except WebSocketDisconnect:
-        logger.info("WebSocket client disconnected.")
+        logger.info("WebSocket client disconnected from /ws/orderbook.")
+    finally:
+        await pubsub.unsubscribe("orderbook_updates")
+        await pubsub.close()
+
+# Keep the original endpoint for backwards compatibility
+@app.websocket("/ws/orderbook/BTCUSDT")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    logger.info("New WebSocket client connected to /ws/orderbook/BTCUSDT.")
+    
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe("orderbook:BTCUSDT")
+    
+    try:
+        while True:
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            if message:
+                payload_str = message["data"]
+                try:
+                    await websocket.send_text(payload_str)
+                except Exception as e:
+                    logger.error(f"Error forwarding message to client: {e}")
+                    break
+            await asyncio.sleep(0.01)  # Cooperatively yield control
+            
+    except WebSocketDisconnect:
+        logger.info("WebSocket client disconnected from /ws/orderbook/BTCUSDT.")
     finally:
         await pubsub.unsubscribe("orderbook:BTCUSDT")
         await pubsub.close()

@@ -1,62 +1,61 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import 'bootstrap/dist/css/bootstrap.min.css';
 
 const API_BASE = 'http://localhost:8000';
-const WS_URL = 'ws://localhost:8000/ws/orderbook/BTCUSDT';
+const WS_URL = 'ws://localhost:8000/ws/orderbook';
 
 const OrderBook = () => {
   const [bids, setBids] = useState([]);
   const [asks, setAsks] = useState([]);
-  
-  // Metrics & State History
   const [metrics, setMetrics] = useState({
     mid_price: 0,
-    spread: 0,
-    bid_ask_imbalance: 0.5,
+    spread_abs: 0,
+    spread_pct: 0,
     cvd: 0,
+    best_bid: 0,
+    best_ask: 0,
   });
   
-  const [cvdHistory, setCvdHistory] = useState([]);
-  const [ohlcv, setOhlcv] = useState([]);
   const [wsStatus, setWsStatus] = useState('Disconnected');
-  
-  // Animation/Flash states for metric cards
-  const [midPriceDirection, setMidPriceDirection] = useState(null); // 'up', 'down', or null
-  const [cardFlashes, setCardFlashes] = useState({
-    mid_price: '',
-    spread: '',
-    bid_ask_imbalance: '',
-    cvd: '',
-  });
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  // Track previous values to compare changes
-  const prevMetricsRef = useRef({ mid_price: 0, spread: 0, bid_ask_imbalance: 0.5, cvd: 0 });
+  // Animation/Flash states for row updates
+  const [bidFlashes, setBidFlashes] = useState({});
+  const [askFlashes, setAskFlashes] = useState({});
+
   const prevBidsRef = useRef([]);
   const prevAsksRef = useRef([]);
-  
-  // Track timestamps of changes for row flashes
-  const [bidFlashes, setBidFlashes] = useState(Array(10).fill(false));
-  const [askFlashes, setAskFlashes] = useState(Array(10).fill(false));
-
   const wsRef = useRef(null);
 
-  const fetchOhlcv = async () => {
+  // Fetch initial snapshot
+  const fetchSnapshot = async () => {
     try {
-      const response = await axios.get(`${API_BASE}/api/ohlcv?symbol=BTCUSDT&limit=10`);
-      setOhlcv(response.data);
+      const response = await axios.get(`${API_BASE}/orderbook`);
+      const data = response.data;
+      if (data) {
+        setBids(data.bids || []);
+        setAsks(data.asks || []);
+        if (data.metrics) {
+          setMetrics(data.metrics);
+        }
+        if (data.timestamp) {
+          setLastUpdated(new Date(data.timestamp * 1000));
+        }
+        prevBidsRef.current = data.bids || [];
+        prevAsksRef.current = data.asks || [];
+      }
     } catch (error) {
-      console.error('Error fetching OHLCV data:', error);
+      console.error('Error fetching orderbook snapshot:', error);
     }
   };
 
   useEffect(() => {
-    fetchOhlcv();
+    fetchSnapshot();
 
     const connectWs = () => {
+      setWsStatus('Connecting');
       const ws = new WebSocket(WS_URL);
       wsRef.current = ws;
-      setWsStatus('Connecting');
 
       ws.onopen = () => {
         setWsStatus('Connected');
@@ -65,98 +64,55 @@ const OrderBook = () => {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          
-          // Row Flashes comparison
           const nextBids = data.bids || [];
           const nextAsks = data.asks || [];
-          const newBidFlashes = [...bidFlashes];
-          const newAskFlashes = [...askFlashes];
 
-          nextBids.forEach((bid, idx) => {
-            const prev = prevBidsRef.current[idx];
-            if (!prev || prev[0] !== bid[0] || prev[1] !== bid[1]) {
-              newBidFlashes[idx] = true;
-              setTimeout(() => {
-                setBidFlashes(current => {
-                  const updated = [...current];
-                  updated[idx] = false;
-                  return updated;
-                });
-              }, 150);
-            }
+          // Detect increases in bids (at same price levels)
+          setBidFlashes((current) => {
+            const next = { ...current };
+            let updated = false;
+            nextBids.slice(0, 15).forEach((bid) => {
+              const price = bid[0];
+              const qty = bid[1];
+              const prevMatch = prevBidsRef.current.find(b => b[0] === price);
+              if (prevMatch && qty > prevMatch[1]) {
+                next[price] = Date.now();
+                updated = true;
+              }
+            });
+            return updated ? next : current;
           });
 
-          nextAsks.forEach((ask, idx) => {
-            const prev = prevAsksRef.current[idx];
-            if (!prev || prev[0] !== ask[0] || prev[1] !== ask[1]) {
-              newAskFlashes[idx] = true;
-              setTimeout(() => {
-                setAskFlashes(current => {
-                  const updated = [...current];
-                  updated[idx] = false;
-                  return updated;
-                });
-              }, 150);
-            }
+          // Detect increases in asks
+          setAskFlashes((current) => {
+            const next = { ...current };
+            let updated = false;
+            nextAsks.slice(0, 15).forEach((ask) => {
+              const price = ask[0];
+              const qty = ask[1];
+              const prevMatch = prevAsksRef.current.find(a => a[0] === price);
+              if (prevMatch && qty > prevMatch[1]) {
+                next[price] = Date.now();
+                updated = true;
+              }
+            });
+            return updated ? next : current;
           });
 
           prevBidsRef.current = nextBids;
           prevAsksRef.current = nextAsks;
-          setBidFlashes(newBidFlashes);
-          setAskFlashes(newAskFlashes);
 
-          // Update Bids/Asks
           setBids(nextBids);
           setAsks(nextAsks);
 
-          // Metrics comparison
           if (data.metrics) {
-            const prev = prevMetricsRef.current;
-            const current = data.metrics;
-            
-            const nextFlashes = { mid_price: '', spread: '', bid_ask_imbalance: '', cvd: '' };
-            
-            // Mid price direction & flash
-            if (current.mid_price > prev.mid_price) {
-              setMidPriceDirection('up');
-              nextFlashes.mid_price = 'flash-green';
-            } else if (current.mid_price < prev.mid_price) {
-              setMidPriceDirection('down');
-              nextFlashes.mid_price = 'flash-red';
-            }
-            
-            // Spread flash
-            if (current.spread > prev.spread) nextFlashes.spread = 'flash-red';
-            else if (current.spread < prev.spread) nextFlashes.spread = 'flash-green';
-            
-            // Imbalance flash
-            if (current.bid_ask_imbalance > prev.bid_ask_imbalance) nextFlashes.bid_ask_imbalance = 'flash-green';
-            else if (current.bid_ask_imbalance < prev.bid_ask_imbalance) nextFlashes.bid_ask_imbalance = 'flash-red';
-
-            // CVD flash & Sparkline history
-            if (current.cvd > prev.cvd) nextFlashes.cvd = 'flash-green';
-            else if (current.cvd < prev.cvd) nextFlashes.cvd = 'flash-red';
-
-            setMetrics(current);
-            setCardFlashes(nextFlashes);
-            
-            // Reset flash styling after 300ms
-            setTimeout(() => {
-              setCardFlashes({ mid_price: '', spread: '', bid_ask_imbalance: '', cvd: '' });
-            }, 300);
-
-            // Record CVD history
-            setCvdHistory(prevHistory => {
-              const updated = [...prevHistory, current.cvd];
-              if (updated.length > 30) updated.shift();
-              return updated;
-            });
-
-            prevMetricsRef.current = current;
+            setMetrics(data.metrics);
           }
-
+          if (data.timestamp) {
+            setLastUpdated(new Date(data.timestamp * 1000));
+          }
         } catch (e) {
-          console.error('Error parsing WS message:', e);
+          console.error('Error parsing WebSocket message:', e);
         }
       };
 
@@ -165,21 +121,25 @@ const OrderBook = () => {
       };
 
       ws.onclose = () => {
-        setWsStatus('Disconnected');
+        setWsStatus('Reconnecting...');
         setTimeout(connectWs, 3000);
       };
     };
 
     connectWs();
-    const interval = setInterval(fetchOhlcv, 30000);
 
     return () => {
-      if (wsRef.current) wsRef.current.close();
-      clearInterval(interval);
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
     };
   }, []);
 
-  // Compute depth values and maximum visible volume for percentage mapping
+  // Prepare top 15 levels for bids and asks
+  const visibleBids = bids.slice(0, 15);
+  const visibleAsks = asks.slice(0, 15);
+
+  // Compute cumulative values for rendering totals
   const getCumulativeData = (levels) => {
     let total = 0;
     return levels.map(([price, qty]) => {
@@ -188,350 +148,336 @@ const OrderBook = () => {
     });
   };
 
-  const cumulativeBids = getCumulativeData(bids);
-  const cumulativeAsks = getCumulativeData(asks);
+  const cumulativeBids = getCumulativeData(visibleBids);
+  const cumulativeAsks = getCumulativeData(visibleAsks);
 
-  const maxBidVolume = bids.length > 0 ? Math.max(...bids.map(b => b[1])) : 1;
-  const maxAskVolume = asks.length > 0 ? Math.max(...asks.map(a => a[1])) : 1;
-  const maxOverallVolume = Math.max(maxBidVolume, maxAskVolume);
+  const maxBidSize = visibleBids.length > 0 ? Math.max(...visibleBids.map(b => b[1])) : 1;
+  const maxAskSize = visibleAsks.length > 0 ? Math.max(...visibleAsks.map(a => a[1])) : 1;
 
-  // Render SVG Sparkline
-  const renderSparkline = (data) => {
-    if (data.length < 2) return null;
-    const width = 120;
-    const height = 30;
-    const minVal = Math.min(...data);
-    const maxVal = Math.max(...data);
-    const valRange = maxVal - minVal || 1;
-
-    const points = data
-      .map((val, idx) => {
-        const x = (idx / (data.length - 1)) * width;
-        const y = height - ((val - minVal) / valRange) * height;
-        return `${x},${y}`;
-      })
-      .join(' ');
-
-    return (
-      <svg width={width} height={height} className="ms-2">
-        <polyline
-          fill="none"
-          stroke={data[data.length - 1] >= data[0] ? '#198754' : '#dc3545'}
-          strokeWidth="1.5"
-          points={points}
-        />
-      </svg>
-    );
+  const formatNumber = (num, decimals = 2) => {
+    if (num === undefined || num === null) return '-';
+    return Number(num).toLocaleString('en-US', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
   };
 
-  // Render inline Candlestick SVG (20x30px)
-  const renderCandlestick = (row) => {
-    const { open, high, low, close } = row;
-    const maxVal = high;
-    const minVal = low;
-    const range = maxVal - minVal || 1;
+  const formatTimestamp = (date) => {
+    if (!date) return 'Never';
+    const hrs = String(date.getHours()).padStart(2, '0');
+    const mins = String(date.getMinutes()).padStart(2, '0');
+    const secs = String(date.getSeconds()).padStart(2, '0');
+    const ms = String(date.getMilliseconds()).padStart(3, '0');
+    return `${hrs}:${mins}:${secs}.${ms}`;
+  };
 
-    const yHigh = (30 * (maxVal - high)) / range;
-    const yLow = (30 * (maxVal - low)) / range;
-    const yOpen = (30 * (maxVal - open)) / range;
-    const yClose = (30 * (maxVal - close)) / range;
-
-    const bodyY = Math.min(yOpen, yClose);
-    const bodyHeight = Math.max(Math.abs(yOpen - yClose), 1.5);
-    const isBullish = close >= open;
-    const color = isBullish ? '#198754' : '#dc3545';
-
-    return (
-      <svg width="20" height="30" style={{ display: 'block', margin: 'auto' }}>
-        {/* Wick line */}
-        <line x1="10" y1={yHigh} x2="10" y2={yLow} stroke={color} strokeWidth="1.5" />
-        {/* Real body */}
-        <rect x="4" y={bodyY} width="12" height={bodyHeight} fill={color} />
-      </svg>
-    );
+  // Get status color for status dot
+  const getStatusColor = () => {
+    if (wsStatus === 'Connected') return '#00ff88';
+    return '#ff4444';
   };
 
   return (
-    <div className="container-fluid px-4 py-4 text-white" style={{ minHeight: '100vh', backgroundColor: '#0b0c0e' }}>
-      
-      {/* CSS Styles injection */}
-      <style>{`
-        .pulse-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          display: inline-block;
-          margin-right: 8px;
-          box-shadow: 0 0 0 rgba(25, 135, 84, 0.4);
-          animation: pulse 1.5s infinite;
-        }
-        .pulse-dot.green {
-          background-color: #198754;
-          box-shadow: 0 0 0 #198754;
-        }
-        .pulse-dot.red {
-          background-color: #dc3545;
-          animation: pulse-red 1.5s infinite;
-        }
-        @keyframes pulse {
-          0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(25, 135, 84, 0.7); }
-          70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(25, 135, 84, 0); }
-          100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(25, 135, 84, 0); }
-        }
-        @keyframes pulse-red {
-          0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
-          70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(220, 53, 69, 0); }
-          100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
-        }
-        .metric-card {
-          transition: background-color 0.3s ease, border-color 0.3s ease;
-          background-color: #121418 !important;
-          border: 1px solid #2d3139 !important;
-        }
-        .flash-green {
-          background-color: rgba(25, 135, 84, 0.15) !important;
-          border-color: #198754 !important;
-        }
-        .flash-red {
-          background-color: rgba(220, 53, 69, 0.15) !important;
-          border-color: #dc3545 !important;
-        }
-        .flash-row-change {
-          background-color: rgba(255, 193, 7, 0.15) !important;
-          transition: background-color 0s;
-        }
-        .orderbook-row {
-          position: relative;
-          transition: background-color 0.5s ease;
-        }
-        .orderbook-row td {
-          position: relative;
-          z-index: 2;
-          background: transparent !important;
-        }
-        .depth-bar {
-          position: absolute;
-          top: 0;
-          bottom: 0;
-          z-index: 1;
-          pointer-events: none;
-          transition: width 0.2s ease;
-        }
-        .depth-bar.bid-bar {
-          right: 0;
-          background-color: rgba(0, 255, 0, 0.08);
-        }
-        .depth-bar.ask-bar {
-          left: 0;
-          background-color: rgba(255, 0, 0, 0.08);
-        }
-      `}</style>
+    <div style={{
+      backgroundColor: '#0d1117',
+      minHeight: '100vh',
+      width: '100%',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      color: '#e6edf3',
+      padding: '24px 0'
+    }}>
+      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '0 24px' }}>
+        
+        {/* CSS Styles */}
+        <style>{`
+          @keyframes flashGreen {
+            0% { background-color: rgba(0, 255, 136, 0.25); }
+            100% { background-color: transparent; }
+          }
+          @keyframes flashRed {
+            0% { background-color: rgba(255, 68, 68, 0.25); }
+            100% { background-color: transparent; }
+          }
+          .flash-bid {
+            animation: flashGreen 300ms ease-out forwards;
+          }
+          .flash-ask {
+            animation: flashRed 300ms ease-out forwards;
+          }
+          .grid-row-header {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr 1fr;
+            padding: 8px 20px;
+            font-size: 11px;
+            color: #8b949e;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid #21262d;
+            font-weight: 600;
+          }
+          .grid-row-data {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr 1fr;
+            padding: 6px 20px;
+            font-size: 13px;
+            font-family: 'Courier New', Courier, monospace;
+            position: relative;
+            cursor: pointer;
+            transition: background-color 0.15s ease;
+          }
+          .grid-row-data:hover {
+            background-color: #1c2128 !important;
+          }
+          .grid-cell {
+            position: relative;
+            z-index: 1;
+          }
+          .text-mono {
+            font-family: 'Courier New', Courier, monospace;
+          }
+        `}</style>
 
-      {/* Header section */}
-      <div className="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom border-secondary">
-        <div>
-          <h1 className="fw-bold mb-0 text-info" style={{ letterSpacing: '-0.5px' }}>Real-Time Order Book</h1>
-          <p className="text-muted mb-0 small">
-            BTC/USDT · Binance L2 · 100ms feed · Redis pub/sub · PostgreSQL OHLCV
-          </p>
-        </div>
-        <div className="d-flex align-items-center bg-dark px-3 py-2 rounded border border-secondary shadow-sm">
-          <span className={`pulse-dot ${wsStatus === 'Connected' ? 'green' : 'red'}`} />
-          <span className="fw-bold text-uppercase" style={{ fontSize: '0.8rem', letterSpacing: '1px' }}>
-            {wsStatus === 'Connected' ? 'LIVE' : 'RECONNECTING...'}
-          </span>
-        </div>
-      </div>
-
-      {/* 3-Panel Layout */}
-      <div className="row g-4 mb-4">
-        {/* Left panel (40%): Bids Table */}
-        <div className="col-lg-5">
-          <div className="card h-100 p-3 shadow-sm" style={{ backgroundColor: '#121418', border: '1px solid #2d3139' }}>
-            <div className="d-flex justify-content-between align-items-center mb-3">
-              <h5 className="text-success fw-bold mb-0">Bids (Buy Orders)</h5>
-              <span className="text-muted small">Top 10 Levels</span>
+        {/* Header */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          paddingBottom: '20px',
+          borderBottom: '1px solid #21262d',
+          marginBottom: '24px'
+        }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#ffffff', letterSpacing: '-0.02em' }}>
+              BTC/USDT
+            </h1>
+            <div style={{ display: 'flex', align_items: 'center', gap: '8px', marginTop: '4px', fontSize: '14px', color: '#8b949e' }}>
+              <span style={{
+                display: 'inline-block',
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: getStatusColor(),
+                boxShadow: `0 0 6px ${getStatusColor()}`,
+                alignSelf: 'center'
+              }}></span>
+              <span>{wsStatus}</span>
             </div>
-            <div className="table-responsive">
-              <table className="table table-dark table-sm text-end mb-0" style={{ fontSize: '0.85rem' }}>
-                <thead>
-                  <tr className="text-muted border-secondary">
-                    <th scope="col" className="text-start">Cumulative</th>
-                    <th scope="col">Amount (BTC)</th>
-                    <th scope="col" className="text-success">Price (USD)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cumulativeBids.map((bid, idx) => {
-                    const depthPercent = (bid.qty / maxOverallVolume) * 100;
-                    return (
-                      <tr key={idx} className={`orderbook-row ${bidFlashes[idx] ? 'flash-row-change' : ''}`}>
-                        {/* Depth background bar */}
-                        <div className="depth-bar bid-bar" style={{ width: `${depthPercent}%` }} />
-                        <td className="text-start text-muted">{bid.total.toFixed(4)}</td>
-                        <td>{bid.qty.toFixed(4)}</td>
-                        <td className="text-success fw-bold">${bid.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                      </tr>
-                    );
-                  })}
-                  {cumulativeBids.length === 0 && (
-                    <tr>
-                      <td colSpan="3" className="text-center text-muted py-4">Waiting for bids feed...</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+          </div>
+          <div style={{ fontSize: '14px', color: '#8b949e', fontFamily: "'Courier New', monospace" }}>
+            {formatTimestamp(lastUpdated)}
+          </div>
+        </div>
+
+        {/* Metrics Bar */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: '16px',
+          marginBottom: '24px'
+        }}>
+          {/* Mid Price Card */}
+          <div style={{
+            backgroundColor: '#161b22',
+            border: '1px solid #21262d',
+            borderLeft: '4px solid #ffd700',
+            borderRadius: '8px',
+            padding: '20px 24px'
+          }}>
+            <div style={{ fontSize: '11px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '600', marginBottom: '8px' }}>
+              MID PRICE
+            </div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ffffff', fontFamily: "'Courier New', monospace" }}>
+              ${formatNumber(metrics.mid_price, 2)}
+            </div>
+          </div>
+
+          {/* Spread Card */}
+          <div style={{
+            backgroundColor: '#161b22',
+            border: '1px solid #21262d',
+            borderRadius: '8px',
+            padding: '20px 24px'
+          }}>
+            <div style={{ fontSize: '11px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '600', marginBottom: '8px' }}>
+              SPREAD
+            </div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ffffff', fontFamily: "'Courier New', monospace" }}>
+              ${formatNumber(metrics.spread_abs, 2)}
+            </div>
+          </div>
+
+          {/* Spread % Card */}
+          <div style={{
+            backgroundColor: '#161b22',
+            border: '1px solid #21262d',
+            borderRadius: '8px',
+            padding: '20px 24px'
+          }}>
+            <div style={{ fontSize: '11px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '600', marginBottom: '8px' }}>
+              SPREAD %
+            </div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ffffff', fontFamily: "'Courier New', monospace" }}>
+              {formatNumber(metrics.spread_pct, 4)}%
+            </div>
+          </div>
+
+          {/* CVD Card */}
+          <div style={{
+            backgroundColor: '#161b22',
+            border: '1px solid #21262d',
+            borderRadius: '8px',
+            padding: '20px 24px'
+          }}>
+            <div style={{ fontSize: '11px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '600', marginBottom: '8px' }}>
+              CVD
+            </div>
+            <div style={{
+              fontSize: '24px',
+              fontWeight: 'bold',
+              fontFamily: "'Courier New', monospace",
+              color: metrics.cvd >= 0 ? '#00ff88' : '#ff4444'
+            }}>
+              {metrics.cvd >= 0 ? '+' : ''}{formatNumber(metrics.cvd, 4)}
             </div>
           </div>
         </div>
 
-        {/* Center panel (20%): Metrics Strip */}
-        <div className="col-lg-2">
-          <div className="d-flex flex-column gap-3 h-100">
-            {/* Mid Price Card */}
-            <div className={`card metric-card p-3 flex-fill ${cardFlashes.mid_price}`}>
-              <span className="text-muted small uppercase fw-semibold">Mid Price</span>
-              <div className="d-flex align-items-center mt-2 justify-content-between">
-                <span className="text-warning fw-bold fs-5">
-                  ${metrics.mid_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                {midPriceDirection && (
-                  <span className={`fw-bold ms-2 ${midPriceDirection === 'up' ? 'text-success' : 'text-danger'}`} style={{ fontSize: '1.2rem' }}>
-                    {midPriceDirection === 'up' ? '▲' : '▼'}
-                  </span>
+        {/* Order Book side-by-side columns */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: '16px'
+        }}>
+          {/* Bids Column */}
+          <div style={{
+            backgroundColor: '#161b22',
+            border: '1px solid #21262d',
+            borderRadius: '8px',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: '1px solid #21262d',
+              color: '#00ff88',
+              fontWeight: 'bold',
+              fontSize: '16px'
+            }}>
+              Bids
+            </div>
+            <div>
+              <div className="grid-row-header">
+                <div style={{ textAlign: 'left' }}>Price (USDT)</div>
+                <div style={{ textAlign: 'right' }}>Size (BTC)</div>
+                <div style={{ textAlign: 'right' }}>Total (BTC)</div>
+              </div>
+              <div style={{ padding: '4px 0' }}>
+                {cumulativeBids.map((bid) => {
+                  const barWidth = maxBidSize > 0 ? (bid.qty / maxBidSize) * 100 : 0;
+                  const flashKey = bidFlashes[bid.price] || '';
+                  return (
+                    <div
+                      key={`bid-${bid.price}-${flashKey}`}
+                      className={`grid-row-data ${flashKey ? 'flash-bid' : ''}`}
+                    >
+                      {/* Depth Bar */}
+                      <div style={{
+                        position: 'absolute',
+                        top: 0,
+                        bottom: 0,
+                        right: 0,
+                        width: `${barWidth}%`,
+                        backgroundColor: 'rgba(0, 255, 136, 0.08)',
+                        zIndex: 0,
+                        pointerEvents: 'none'
+                      }}></div>
+                      
+                      <div className="grid-cell" style={{ textAlign: 'left', color: '#00ff88', fontWeight: 'bold' }}>
+                        {formatNumber(bid.price, 2)}
+                      </div>
+                      <div className="grid-cell" style={{ textAlign: 'right', color: '#ffffff' }}>
+                        {formatNumber(bid.qty, 4)}
+                      </div>
+                      <div className="grid-cell" style={{ textAlign: 'right', color: '#8b949e' }}>
+                        {formatNumber(bid.total, 4)}
+                      </div>
+                    </div>
+                  );
+                })}
+                {cumulativeBids.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '40px 0', color: '#8b949e', fontSize: '14px' }}>
+                    No active bid data
+                  </div>
                 )}
               </div>
             </div>
+          </div>
 
-            {/* Market Pressure Indicator (replacing progress bar) */}
-            <div className={`card metric-card p-3 flex-fill ${cardFlashes.bid_ask_imbalance}`}>
-              <span className="text-muted small uppercase fw-semibold">Market Pressure</span>
-              <div className="d-flex justify-content-between mt-2 mb-1" style={{ fontSize: '0.8rem' }}>
-                <span className="text-success fw-bold">{(metrics.bid_ask_imbalance * 100).toFixed(0)}% Bids</span>
-                <span className="text-danger fw-bold">{((1 - metrics.bid_ask_imbalance) * 100).toFixed(0)}% Asks</span>
-              </div>
-              <div className="w-100 rounded overflow-hidden d-flex" style={{ height: '8px', backgroundColor: '#333' }}>
-                <div className="bg-success" style={{ width: `${metrics.bid_ask_imbalance * 100}%`, transition: 'width 0.3s ease' }} />
-                <div className="bg-danger" style={{ width: `${(1 - metrics.bid_ask_imbalance) * 100}%`, transition: 'width 0.3s ease' }} />
-              </div>
+          {/* Asks Column */}
+          <div style={{
+            backgroundColor: '#161b22',
+            border: '1px solid #21262d',
+            borderRadius: '8px',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: '1px solid #21262d',
+              color: '#ff4444',
+              fontWeight: 'bold',
+              fontSize: '16px'
+            }}>
+              Asks
             </div>
-
-            {/* Spread Card */}
-            <div className={`card metric-card p-3 flex-fill ${cardFlashes.spread}`}>
-              <span className="text-muted small uppercase fw-semibold">Spread</span>
-              <div className="mt-2 text-info fw-bold fs-5">
-                ${metrics.spread.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <div>
+              <div className="grid-row-header">
+                <div style={{ textAlign: 'left' }}>Price (USDT)</div>
+                <div style={{ textAlign: 'right' }}>Size (BTC)</div>
+                <div style={{ textAlign: 'right' }}>Total (BTC)</div>
               </div>
-            </div>
-
-            {/* CVD Card with Inline Sparkline */}
-            <div className={`card metric-card p-3 flex-fill ${cardFlashes.cvd}`}>
-              <span className="text-muted small uppercase fw-semibold">CVD Delta Approx</span>
-              <div className="d-flex align-items-center justify-content-between mt-2">
-                <span className={`fw-bold ${metrics.cvd >= 0 ? 'text-success' : 'text-danger'}`} style={{ fontSize: '1.05rem' }}>
-                  {metrics.cvd.toLocaleString(undefined, { maximumFractionDigits: 1 })}
-                </span>
-              </div>
-              <div className="mt-2 d-flex justify-content-center border-top border-secondary pt-2" style={{ height: '30px' }}>
-                {renderSparkline(cvdHistory)}
+              <div style={{ padding: '4px 0' }}>
+                {cumulativeAsks.map((ask) => {
+                  const barWidth = maxAskSize > 0 ? (ask.qty / maxAskSize) * 100 : 0;
+                  const flashKey = askFlashes[ask.price] || '';
+                  return (
+                    <div
+                      key={`ask-${ask.price}-${flashKey}`}
+                      className={`grid-row-data ${flashKey ? 'flash-ask' : ''}`}
+                    >
+                      {/* Depth Bar */}
+                      <div style={{
+                        position: 'absolute',
+                        top: 0,
+                        bottom: 0,
+                        left: 0,
+                        width: `${barWidth}%`,
+                        backgroundColor: 'rgba(255, 68, 68, 0.08)',
+                        zIndex: 0,
+                        pointerEvents: 'none'
+                      }}></div>
+                      
+                      <div className="grid-cell" style={{ textAlign: 'left', color: '#ff4444', fontWeight: 'bold' }}>
+                        {formatNumber(ask.price, 2)}
+                      </div>
+                      <div className="grid-cell" style={{ textAlign: 'right', color: '#ffffff' }}>
+                        {formatNumber(ask.qty, 4)}
+                      </div>
+                      <div className="grid-cell" style={{ textAlign: 'right', color: '#8b949e' }}>
+                        {formatNumber(ask.total, 4)}
+                      </div>
+                    </div>
+                  );
+                })}
+                {cumulativeAsks.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '40px 0', color: '#8b949e', fontSize: '14px' }}>
+                    No active ask data
+                  </div>
+                )}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right panel (40%): Asks Table */}
-        <div className="col-lg-5">
-          <div className="card h-100 p-3 shadow-sm" style={{ backgroundColor: '#121418', border: '1px solid #2d3139' }}>
-            <div className="d-flex justify-content-between align-items-center mb-3">
-              <h5 className="text-danger fw-bold mb-0">Asks (Sell Orders)</h5>
-              <span className="text-muted small">Top 10 Levels</span>
-            </div>
-            <div className="table-responsive">
-              <table className="table table-dark table-sm text-start mb-0" style={{ fontSize: '0.85rem' }}>
-                <thead>
-                  <tr className="text-muted border-secondary">
-                    <th scope="col" className="text-danger">Price (USD)</th>
-                    <th scope="col" className="text-end">Amount (BTC)</th>
-                    <th scope="col" className="text-end text-muted">Cumulative</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cumulativeAsks.map((ask, idx) => {
-                    const depthPercent = (ask.qty / maxOverallVolume) * 100;
-                    return (
-                      <tr key={idx} className={`orderbook-row ${askFlashes[idx] ? 'flash-row-change' : ''}`}>
-                        {/* Depth background bar */}
-                        <div className="depth-bar ask-bar" style={{ width: `${depthPercent}%` }} />
-                        <td className="text-danger fw-bold">${ask.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                        <td className="text-end">{ask.qty.toFixed(4)}</td>
-                        <td className="text-end text-muted">{ask.total.toFixed(4)}</td>
-                      </tr>
-                    );
-                  })}
-                  {cumulativeAsks.length === 0 && (
-                    <tr>
-                      <td colSpan="3" className="text-center text-muted py-4">Waiting for asks feed...</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
       </div>
-
-      {/* Bottom Panel: OHLCV Snapshots with Candlesticks */}
-      <div className="row">
-        <div className="col-12">
-          <div className="card p-3 shadow-sm" style={{ backgroundColor: '#121418', border: '1px solid #2d3139' }}>
-            <div className="d-flex justify-content-between align-items-center mb-3">
-              <div>
-                <h5 className="text-info fw-bold mb-0">OHLCV 60s Snapshots</h5>
-                <span className="text-muted small">Aggregated levels stored in database</span>
-              </div>
-              <button className="btn btn-outline-info btn-sm" onClick={fetchOhlcv}>Refresh</button>
-            </div>
-            <div className="table-responsive">
-              <table className="table table-dark table-hover table-sm text-center mb-0" style={{ fontSize: '0.85rem' }}>
-                <thead>
-                  <tr className="text-muted border-secondary">
-                    <th>Time</th>
-                    <th>Open</th>
-                    <th>High</th>
-                    <th>Low</th>
-                    <th>Close</th>
-                    <th>Volume</th>
-                    <th>Trend</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ohlcv.map((row) => {
-                    const date = new Date(row.timestamp);
-                    const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                    return (
-                      <tr key={row.id} className="align-middle">
-                        <td className="text-muted">{timeStr}</td>
-                        <td>${row.open.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</td>
-                        <td className="text-success">${row.high.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</td>
-                        <td className="text-danger">${row.low.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</td>
-                        <td>${row.close.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</td>
-                        <td>{row.volume.toFixed(2)}</td>
-                        <td>{renderCandlestick(row)}</td>
-                      </tr>
-                    );
-                  })}
-                  {ohlcv.length === 0 && (
-                    <tr>
-                      <td colSpan="7" className="text-center text-muted py-4">No snapshots registered in PostgreSQL yet. Aggregation commits every 60s.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-
     </div>
   );
 };

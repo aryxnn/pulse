@@ -1,101 +1,81 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { NavLink, Link } from 'react-router-dom';
 import { CryptoState } from '../CryptoContext';
-import AuthModal from './Athentication/AuthModal';
-import { Avatar, Button } from '@material-ui/core';
-import { signOut } from 'firebase/auth';
-import { auth } from '../firebase';
-import 'bootstrap/dist/css/bootstrap.min.css';
 
 const Header = () => {
-  const { currency, setCurrency, user, setAlert } = CryptoState();
+  const { currency, setCurrency } = CryptoState();
 
-  const logOut = () => {
-    signOut(auth);
-    setAlert({
-      open: true,
-      type: "success",
-      message: "Logout Successfully!"
-    });
-  };
+  const getLinkStyle = ({ isActive }) => ({
+    color: isActive ? '#e6edf3' : '#8b949e',
+    textDecoration: 'none',
+    fontSize: '14px',
+    fontWeight: '500',
+    padding: '18px 0',
+    borderBottom: isActive ? '2px solid #00d4ff' : '2px solid transparent',
+    transition: 'all 0.2s ease',
+  });
 
   return (
-    <nav className="navbar navbar-expand-lg navbar-dark bg-dark">
-      <div className="container-fluid">
-        <Link className="navbar-brand" to="/">
-          Crypto Hunter
-        </Link>
+    <nav style={{
+      backgroundColor: '#0d1117',
+      borderBottom: '1px solid #21262d',
+      height: '56px',
+      padding: '0 32px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      fontFamily: 'system-ui, -apple-system, sans-serif'
+    }}>
+      {/* Brand logo */}
+      <Link to="/" style={{ textDecoration: 'none' }}>
+        <span style={{
+          color: '#00d4ff',
+          fontSize: '20px',
+          fontWeight: 'bold',
+          letterSpacing: '-0.02em'
+        }}>
+          Vega Terminal
+        </span>
+      </Link>
 
-        <button
-          className="navbar-toggler"
-          type="button"
-          data-bs-toggle="collapse"
-          data-bs-target="#navbarSupportedContent"
-          aria-controls="navbarSupportedContent"
-          aria-expanded="false"
-          aria-label="Toggle navigation"
+      {/* Nav Links */}
+      <div style={{
+        display: 'flex',
+        gap: '24px',
+        alignItems: 'center',
+        height: '100%'
+      }}>
+        <NavLink to="/" style={getLinkStyle}>
+          Home
+        </NavLink>
+        <NavLink to="/portfolio" style={getLinkStyle}>
+          Portfolio
+        </NavLink>
+        <NavLink to="/orderbook" style={getLinkStyle}>
+          Order Book
+        </NavLink>
+      </div>
+
+      {/* Currency Selector */}
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <select
+          value={currency}
+          onChange={(e) => setCurrency(e.target.value)}
+          style={{
+            backgroundColor: '#0d1117',
+            color: '#ffffff',
+            border: '1px solid #00d4ff',
+            borderRadius: '4px',
+            padding: '6px 12px',
+            fontSize: '14px',
+            fontWeight: '500',
+            outline: 'none',
+            cursor: 'pointer'
+          }}
         >
-          <span className="navbar-toggler-icon"></span>
-        </button>
-
-        <div className="collapse navbar-collapse" id="navbarSupportedContent">
-          <ul className="navbar-nav me-auto mb-2 mb-lg-0">
-            <li className="nav-item">
-              <Link className="nav-link" to="/portfolio">
-                Portfolio
-              </Link>
-            </li>
-            <li className="nav-item">
-              <Link className="nav-link" to="/converter">
-                Converter
-              </Link>
-            </li>
-            <li className="nav-item">
-              <Link className="nav-link" to="/orderbook">
-                Order Book
-              </Link>
-            </li>
-            {user && (
-              <li className="nav-item">
-                <Link className="nav-link" to="/watchlist">
-                  Watchlist
-                </Link>
-              </li>
-            )}
-          </ul>
-
-          <div className="d-flex align-items-center">
-            <select
-              className="form-select me-2"
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              style={{ width: '100px' }}
-            >
-              <option value="INR">INR</option>
-              <option value="USD">USD</option>
-            </select>
-
-            {user ? (
-              <div className="d-flex align-items-center gap-2">
-                <Avatar
-                  src={user.photoURL}
-                  alt={user.displayName || user.email}
-                  style={{ width: 32, height: 32, marginRight: 8 }}
-                />
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  onClick={logOut}
-                  style={{ fontWeight: 600 }}
-                >
-                  Logout
-                </Button>
-              </div>
-            ) : (
-              <AuthModal />
-            )}
-          </div>
-        </div>
+          <option value="INR">INR</option>
+          <option value="USD">USD</option>
+        </select>
       </div>
     </nav>
   );

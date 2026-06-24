@@ -7,34 +7,43 @@ import websockets
 from backend.redis_client import redis_client
 from backend.db import insert_ohlcv
 
-logging.basicConfig(level=logging.INFO)
+# Configure logging with timestamps
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger("binance_ws")
 
-BINANCE_WS_URL = "wss://stream.binance.com:9443/ws/btcusdt@depth20@100ms"
+BINANCE_WS_URL = "wss://stream.binance.com/ws/btcusdt@depth20@100ms"
 SYMBOL = "BTCUSDT"
 
 async def run_binance_ws():
-    # Cumulative CVD tracker
-    cvd_running_sum = 0.0
-    
-    # Lists to aggregate OHLCV data over 60 seconds
+    # Keep OHLCV aggregations across reconnects
     ohlcv_prices = []
     ohlcv_volumes = []
     last_db_write_time = time.time()
-    
-    logger.info(f"Connecting to Binance WS: {BINANCE_WS_URL}")
+
+    retry_count = 0
+    base_delay = 1.0
+    max_delay = 30.0
+
     while True:
         try:
+            logger.info(f"Connecting to Binance WS: {BINANCE_WS_URL} (Attempt {retry_count + 1})")
             async with websockets.connect(BINANCE_WS_URL) as ws:
-                logger.info("Connected to Binance WebSocket.")
+                logger.info("Connected to Binance WS.")
+                retry_count = 0  # reset retries on successful connection
+
                 async for message in ws:
                     try:
                         data = json.loads(message)
                         
-                        # Parsing bid/ask arrays from the depth snapshot
-                        # Binance format: bids: [[price, qty], ...], asks: [[price, qty], ...]
-                        bids = [[float(p), float(q)] for p, q in data.get("bids", [])]
-                        asks = [[float(p), float(q)] for p, q in data.get("asks", [])]
+                        # Parse and sort bids (descending) and asks (ascending)
+                        raw_bids = data.get("bids", [])
+                        raw_asks = data.get("asks", [])
+                        
+                        bids = sorted([[float(p), float(q)] for p, q in raw_bids], key=lambda x: x[0], reverse=True)
+                        asks = sorted([[float(p), float(q)] for p, q in raw_asks], key=lambda x: x[0])
                         
                         if not bids or not asks:
                             continue
@@ -42,47 +51,47 @@ async def run_binance_ws():
                         best_bid = bids[0][0]
                         best_ask = asks[0][0]
                         
-                        # Mid Price & Spread
+                        # Compute metrics
                         mid_price = (best_bid + best_ask) / 2.0
-                        spread = best_ask - best_bid
+                        spread_abs = best_ask - best_bid
+                        spread_pct = (spread_abs / mid_price) * 100.0 if mid_price > 0 else 0.0
                         
-                        # Top 10 levels for imbalance
-                        top_10_bids = bids[:10]
-                        top_10_asks = asks[:10]
+                        # CVD: sum bid_vol - ask_vol across top 20
+                        top_20_bids = bids[:20]
+                        top_20_asks = asks[:20]
                         
-                        bid_volume_top_10 = sum(level[1] for level in top_10_bids)
-                        ask_volume_top_10 = sum(level[1] for level in top_10_asks)
+                        bid_vol_sum = sum(level[1] for level in top_20_bids)
+                        ask_vol_sum = sum(level[1] for level in top_20_asks)
+                        cvd = bid_vol_sum - ask_vol_sum
                         
-                        total_volume_top_10 = bid_volume_top_10 + ask_volume_top_10
-                        if total_volume_top_10 > 0:
-                            bid_ask_imbalance = bid_volume_top_10 / total_volume_top_10
-                        else:
-                            bid_ask_imbalance = 0.5
-                            
-                        # CVD: running sum of (total_bid_vol - total_ask_vol)
-                        cvd_running_sum += (bid_volume_top_10 - ask_volume_top_10)
-                        
-                        # Record metrics for OHLCV
+                        # Record metrics for OHLCV database insertion
                         ohlcv_prices.append(mid_price)
-                        ohlcv_volumes.append(bid_volume_top_10 + ask_volume_top_10)
+                        ohlcv_volumes.append(bid_vol_sum + ask_vol_sum)
                         
                         # Payload preparation
                         timestamp_now = time.time()
                         payload = {
                             "symbol": SYMBOL,
-                            "bids": bids[:10],  # UI shows top 10
-                            "asks": asks[:10],
+                            "bids": bids,
+                            "asks": asks,
                             "metrics": {
                                 "mid_price": mid_price,
-                                "spread": spread,
-                                "bid_ask_imbalance": bid_ask_imbalance,
-                                "cvd": cvd_running_sum
+                                "spread_abs": spread_abs,
+                                "spread_pct": spread_pct,
+                                "cvd": cvd,
+                                "best_bid": best_bid,
+                                "best_ask": best_ask
                             },
                             "timestamp": timestamp_now
                         }
                         
-                        # Publish to Redis pub/sub
-                        await redis_client.publish(f"orderbook:{SYMBOL}", json.dumps(payload))
+                        payload_str = json.dumps(payload)
+                        
+                        # Save full payload as JSON to Redis key: orderbook_snapshot
+                        await redis_client.set("orderbook_snapshot", payload_str)
+                        
+                        # Publish same payload to Redis channel: orderbook_updates
+                        await redis_client.publish("orderbook_updates", payload_str)
                         
                         # Check if 60 seconds have elapsed to write to Postgres
                         if timestamp_now - last_db_write_time >= 60.0:
@@ -106,11 +115,18 @@ async def run_binance_ws():
                             last_db_write_time = timestamp_now
                             
                     except Exception as e:
-                        logger.error(f"Error parsing/processing WS message: {e}")
+                        logger.error(f"Error processing WS message: {e}")
                         
         except Exception as e:
-            logger.error(f"WebSocket connection error: {e}. Reconnecting in 5 seconds...")
-            await asyncio.sleep(5)
+            logger.error(f"WebSocket connection error: {e}")
+            retry_count += 1
+            if retry_count > 5:
+                logger.error("Max retries (5) reached. Continuing attempt after delay.")
+                retry_count = 5  # Cap the retry_count for delay calculation
+            
+            delay = min(base_delay * (2 ** (retry_count - 1)), max_delay)
+            logger.info(f"Reconnecting in {delay:.1f} seconds...")
+            await asyncio.sleep(delay)
 
 if __name__ == "__main__":
     asyncio.run(run_binance_ws())
