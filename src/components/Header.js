@@ -50,6 +50,11 @@ const Header = () => {
                 Converter
               </Link>
             </li>
+            <li className="nav-item">
+              <Link className="nav-link" to="/orderbook">
+                Order Book
+              </Link>
+            </li>
             {user && (
               <li className="nav-item">
                 <Link className="nav-link" to="/watchlist">

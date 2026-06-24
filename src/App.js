@@ -8,6 +8,7 @@ import Alert from './components/Alert';
 import Portfolio from './components/Portfolio';
 import Converter from './components/Converter';
 import CoinPage from './Pages/CoinPage';
+import OrderBook from './Pages/OrderBook';
 
 const useStyle = makeStyles(() => ({
   App: {
@@ -30,6 +31,7 @@ function App() {
           <Route path='/portfolio' element={<Portfolio />} />
           <Route path='/converter' element={<Converter />} />
           <Route path='/watchlist' element={<Watchlist />} />
+          <Route path='/orderbook' element={<OrderBook />} />
         </Routes>
       </div>
       <Alert />
