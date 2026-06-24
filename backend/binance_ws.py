@@ -27,6 +27,9 @@ async def run_binance_ws():
     base_delay = 1.0
     max_delay = 30.0
 
+    order_book_bids = {}
+    order_book_asks = {}
+
     while True:
         try:
             logger.info(f"Connecting to Binance WS: {BINANCE_WS_URL} (Attempt {retry_count + 1})")
@@ -43,12 +46,39 @@ async def run_binance_ws():
 
                         data = json.loads(message)
                         
-                        # Parse and sort bids (descending) and asks (ascending)
+                        # Parse bids and asks
                         raw_bids = data.get("bids", [])
                         raw_asks = data.get("asks", [])
                         
-                        bids = sorted([[float(p), float(q)] for p, q in raw_bids], key=lambda x: x[0], reverse=True)
-                        asks = sorted([[float(p), float(q)] for p, q in raw_asks], key=lambda x: x[0])
+                        # Update bids dictionary
+                        for p, q in raw_bids:
+                            price_val = float(p)
+                            qty_val = float(q)
+                            if qty_val == 0.0:
+                                order_book_bids.pop(price_val, None)
+                            else:
+                                order_book_bids[price_val] = qty_val
+
+                        # Update asks dictionary
+                        for p, q in raw_asks:
+                            price_val = float(p)
+                            qty_val = float(q)
+                            if qty_val == 0.0:
+                                order_book_asks.pop(price_val, None)
+                            else:
+                                order_book_asks[price_val] = qty_val
+
+                        # Keep only top 20 bids (highest price)
+                        sorted_bid_prices = sorted(order_book_bids.keys(), reverse=True)[:20]
+                        order_book_bids = {p: order_book_bids[p] for p in sorted_bid_prices}
+
+                        # Keep only top 20 asks (lowest price)
+                        sorted_ask_prices = sorted(order_book_asks.keys())[:20]
+                        order_book_asks = {p: order_book_asks[p] for p in sorted_ask_prices}
+
+                        # Convert back to sorted lists for the payload
+                        bids = [[p, order_book_bids[p]] for p in sorted_bid_prices]
+                        asks = [[p, order_book_asks[p]] for p in sorted_ask_prices]
                         
                         if not bids or not asks:
                             continue

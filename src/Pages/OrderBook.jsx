@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8000';
-const WS_URL = 'ws://localhost:8000/ws/orderbook';
+const API_BASE = process.env.REACT_APP_API_URL;
+const WS_URL = `${process.env.REACT_APP_WS_URL}/ws/orderbook`;
 
 const OrderBook = () => {
   const [bids, setBids] = useState([]);

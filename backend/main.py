@@ -32,13 +32,27 @@ async def lifespan(app: FastAPI):
     
     await close_db()
 
+# Required environment variables:
+# REDIS_URL — Upstash Redis URL with rediss:// prefix (TLS)
+# FRONTEND_URL — Vercel frontend URL (optional, for CORS)
+
+from backend.config import FRONTEND_URL
+
 app = FastAPI(lifespan=lifespan)
+
+origins = [
+    "http://localhost:3000",
+    "https://pulse-frontend.vercel.app",
+]
+if FRONTEND_URL:
+    origins.append(FRONTEND_URL)
 
 # Allow CORS for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=origins,
+    allow_origin_regex="https://.*\\.vercel\\.app",
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
