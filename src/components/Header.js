@@ -34,7 +34,7 @@ const Header = () => {
           fontWeight: 'bold',
           letterSpacing: '-0.02em'
         }}>
-          Vega Terminal
+          Pulse
         </span>
       </Link>
 
