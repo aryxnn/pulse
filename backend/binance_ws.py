@@ -21,8 +21,8 @@ async def run_binance_ws():
     # Keep OHLCV aggregations across reconnects
     ohlcv_prices = []
     ohlcv_volumes = []
+    last_publish_time = 0.0
     last_db_write_time = time.time()
-
     retry_count = 0
     base_delay = 1.0
     max_delay = 30.0
@@ -36,6 +36,11 @@ async def run_binance_ws():
 
                 async for message in ws:
                     try:
+                        timestamp_now = time.time()
+                        if timestamp_now - last_publish_time < 0.25:
+                            continue
+                        last_publish_time = timestamp_now
+
                         data = json.loads(message)
                         
                         # Parse and sort bids (descending) and asks (ascending)
