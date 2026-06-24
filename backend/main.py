@@ -69,31 +69,44 @@ async def get_orderbook():
         return json.loads(snapshot)
     return {"symbol": "BTCUSDT", "bids": [], "asks": [], "metrics": {}}
 
+active_connections = 0
+MAX_CONNECTIONS = 10
+
 @app.websocket("/ws/orderbook")
 async def websocket_orderbook(websocket: WebSocket):
-    await websocket.accept()
-    logger.info("New WebSocket client connected to /ws/orderbook.")
-    
-    pubsub = redis_client.pubsub()
-    await pubsub.subscribe("orderbook_updates")
-    
+    global active_connections
+    if active_connections >= MAX_CONNECTIONS:
+        await websocket.close(code=1008)
+        return
+    active_connections += 1
+
     try:
-        while True:
-            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-            if message:
-                payload_str = message["data"]
-                try:
-                    await websocket.send_text(payload_str)
-                except Exception as e:
-                    logger.error(f"Error forwarding message to client: {e}")
-                    break
-            await asyncio.sleep(0.01)  # Cooperatively yield control
-            
-    except WebSocketDisconnect:
-        logger.info("WebSocket client disconnected from /ws/orderbook.")
+        await websocket.accept()
+        logger.info("New WebSocket client connected to /ws/orderbook.")
+        
+        pubsub = redis_client.pubsub()
+        await pubsub.subscribe("orderbook_updates")
+        
+        try:
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    try:
+                        await websocket.send_text(message["data"])
+                    except Exception:
+                        break
+        except Exception as e:
+            logger.error(f"WS client error: {e}")
+        finally:
+            try:
+                await pubsub.unsubscribe("orderbook_updates")
+                await pubsub.close()
+            except Exception:
+                pass
+    except Exception as e:
+        logger.error(f"WS handshake error: {e}")
     finally:
-        await pubsub.unsubscribe("orderbook_updates")
-        await pubsub.close()
+        active_connections -= 1
+
 
 # Keep the original endpoint for backwards compatibility
 @app.websocket("/ws/orderbook/BTCUSDT")

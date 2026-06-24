@@ -102,6 +102,10 @@ async def run_binance_ws():
                         # Record metrics for OHLCV database insertion
                         ohlcv_prices.append(mid_price)
                         ohlcv_volumes.append(bid_vol_sum + ask_vol_sum)
+                        # Cap to last 300 entries max (covers 60s at 4 updates/sec with buffer)
+                        if len(ohlcv_prices) > 300:
+                            ohlcv_prices = ohlcv_prices[-300:]
+                            ohlcv_volumes = ohlcv_volumes[-300:]
                         
                         # Payload preparation
                         timestamp_now = time.time()
@@ -139,12 +143,17 @@ async def run_binance_ws():
                                 
                                 db_timestamp = datetime.now(timezone.utc)
                                 try:
-                                    await insert_ohlcv(SYMBOL, db_timestamp, open_px, high_px, low_px, close_px, avg_volume)
+                                    await asyncio.wait_for(
+                                        insert_ohlcv(SYMBOL, db_timestamp, open_px, high_px, low_px, close_px, avg_volume),
+                                        timeout=5.0
+                                    )
                                     logger.info(f"Inserted OHLCV: Open={open_px:.2f}, High={high_px:.2f}, Low={low_px:.2f}, Close={close_px:.2f}, Vol={avg_volume:.2f}")
+                                except asyncio.TimeoutError:
+                                    logger.error("Timeout inserting OHLCV to DB (5.0s limit reached)")
                                 except Exception as e:
                                     logger.error(f"Error inserting OHLCV to DB: {e}")
                                     
-                            # Reset aggregation buffers
+                            # Always reset — move these OUTSIDE the if ohlcv_prices block
                             ohlcv_prices.clear()
                             ohlcv_volumes.clear()
                             last_db_write_time = timestamp_now
