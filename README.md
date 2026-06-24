@@ -1,10 +1,8 @@
-# Crypto Order Book — Real-Time Market Data Platform
+# Pulse Terminal
 
-A full-stack, containerized real-time cryptocurrency order book tracking platform powered by FastAPI, Binance WebSockets, Redis Pub/Sub, PostgreSQL, and React.
+Pulse Terminal is a full-stack, containerized real-time cryptocurrency trading interface and market data platform. The system streams order book data from Binance WebSockets, processes and aggregates order book parameters, synchronizes state via Redis, and renders a high-performance terminal UI.
 
----
-
-## 🏗️ Architecture
+## Architecture
 
 ```
                        +-------------------+
@@ -30,49 +28,62 @@ A full-stack, containerized real-time cryptocurrency order book tracking platfor
                        +----+---------+----+
                        |    FastAPI WS     | (main.py)
                        +---------+---------+
-                                 | (ws://localhost:8000)
+                                 | (WebSocket)
                                  v
                        +---------+---------+
-                       |   React Client    | (Order Book Page)
+                       |   React Client    | (Pulse UI)
                        +-------------------+
 ```
 
 ---
 
-## 🚀 Features
+## Features
 
-- **Real-Time Order Book Engine**: Connects to the Binance L2 depth stream and streams real-time bid and ask arrays to the client with sub-100ms processing latency.
-- **Quantitative Metrics Calculation**: Automatically computes key market-microstructure metrics on every packet:
-  - **Mid Price**: Mathematical average of best bid and best ask.
-  - **Spread**: Instantaneous difference between best ask and best bid.
-  - **Bid/Ask Imbalance**: Volume-based supply/demand metric calculated over the top 10 price levels.
-  - **Cumulative Volume Delta (CVD) Approximation**: Running sum of the volume differences `(total_bid_vol - total_ask_vol)` to track net buying/selling pressure.
-- **Scalable Redis Fan-Out**: Multi-client support using a Redis channel pub/sub architecture. Each active client manages its own subscription loop, avoiding concurrency bottlenecks.
-- **Robust Persistence**: Every 60 seconds, a worker aggregates L2 depth data to write an OHLCV snapshot into a PostgreSQL table.
-- **Modern Responsive UI**: Real-time visualization tables with color-coded Bids (green) and Asks (red), live metrics dashboard, and queryable historical OHLCV.
+* **Real-Time Order Book Engine**: Connects to the Binance L2 depth stream and pushes real-time bid and ask arrays to the client with sub-100ms latency.
+* **Microstructure Metrics**: Computes key market-microstructure metrics on every packet:
+  * **Mid Price**: Average of best bid and best ask.
+  * **Spread**: Difference between best ask and best bid.
+  * **CVD (Cumulative Volume Delta)**: Volume differences (bid volume minus ask volume) across the top 20 price levels to track net buying and selling pressure.
+* **Upstash Redis Integration**: Uses TLS-secured Redis pub/sub broker to fan out updates to multiple clients.
+* **Memory Optimization**: Employs capped local order book state tracking, pruning zero-quantity levels and restricting stored records to the top 20 entries.
+* **Vega Engine UI**: A dark-themed trading desk dashboard with proportional depth bars and instant visual updates.
 
 ---
 
-## 🛠️ Tech Stack
+## Screenshots
+
+### Home Page
+![Home Page](assets/screenshots/HomePage.png)
+
+### Order Book
+![Order Book](assets/screenshots/OrderBook.png)
+
+---
+
+## Tech Stack
 
 | Component | Technology |
 | :--- | :--- |
-| **Backend Framework** | Python 3.11, FastAPI, Uvicorn |
-| **Real-time Streaming** | Binance WebSocket, WebSockets library |
+| **Backend** | Python 3.11, FastAPI, Uvicorn |
+| **Streaming** | Binance WebSocket, websockets library |
 | **Pub/Sub Broker** | Redis 7 (Alpine) |
-| **Database** | PostgreSQL 15 (Alpine), asyncpg driver |
-| **Frontend** | React, React Router, Bootstrap, Material-UI |
+| **Database** | PostgreSQL 15 (Alpine), asyncpg |
+| **Frontend** | React, Bootstrap |
 | **Infrastructure** | Docker, Docker Compose |
 
 ---
 
-## ⚙️ Getting Started
+## Getting Started
 
-To spin up the entire application environment (Frontend, Backend, Redis, and PostgreSQL) with a single command, run:
+To spin up the local development environment containing the FastAPI backend, Redis, and PostgreSQL, run:
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
-- **Frontend**: http://localhost:3000
-- **Backend API & WebSockets**: http://localhost:8000
+Start the React client separately from the project root:
+
+```bash
+npm install
+npm start
+```
