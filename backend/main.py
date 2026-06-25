@@ -36,16 +36,17 @@ async def lifespan(app: FastAPI):
 # REDIS_URL — Upstash Redis URL with rediss:// prefix (TLS)
 # FRONTEND_URL — Vercel frontend URL (optional, for CORS)
 
-from config import FRONTEND_URL
+import config
 
 app = FastAPI(lifespan=lifespan)
 
 origins = [
     "http://localhost:3000",
     "https://pulse-frontend.vercel.app",
+    "https://pulse-blue-nine.vercel.app",
 ]
-if FRONTEND_URL:
-    origins.append(FRONTEND_URL)
+if config.FRONTEND_URL:
+    origins.append(config.FRONTEND_URL)
 
 # Allow CORS for React frontend
 app.add_middleware(
@@ -79,6 +80,7 @@ async def websocket_orderbook(websocket: WebSocket):
         await websocket.close(code=1008)
         return
     active_connections += 1
+    config.active_connections = active_connections
     await websocket.accept()
     pubsub = await get_pubsub()
     await pubsub.subscribe("orderbook_updates")
@@ -93,6 +95,7 @@ async def websocket_orderbook(websocket: WebSocket):
         logger.error(f"WS client error: {e}")
     finally:
         active_connections -= 1
+        config.active_connections = active_connections
         try:
             await pubsub.unsubscribe("orderbook_updates")
             await pubsub.aclose()

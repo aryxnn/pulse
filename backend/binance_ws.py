@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import websockets
 from redis_client import redis_client
 from db import insert_ohlcv
+import config
 
 # Configure logging with timestamps
 logging.basicConfig(
@@ -39,6 +40,11 @@ async def run_binance_ws():
 
                 async for message in ws:
                     try:
+                        # If no clients are connected, sleep to save Upstash command quotas
+                        if config.active_connections == 0:
+                            await asyncio.sleep(1.0)
+                            continue
+
                         timestamp_now = time.time()
                         if timestamp_now - last_publish_time < 0.25:
                             continue
