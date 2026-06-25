@@ -22,9 +22,9 @@ def _make_client():
 redis_client = _make_client()
 
 async def get_pubsub():
-    """Returns a fresh dedicated pubsub connection — call once per WS client."""
     client = _make_client()
     pubsub = client.pubsub()
-    pubsub._redis_client = client
+    pubsub._redis_client = client  # prevents garbage collection
     return pubsub
+
 
