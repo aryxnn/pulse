@@ -7,7 +7,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from db import init_db, close_db, get_ohlcv
 from binance_ws import run_binance_ws
-from redis_client import redis_client
+from redis_client import redis_client, get_pubsub
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -79,33 +79,25 @@ async def websocket_orderbook(websocket: WebSocket):
         await websocket.close(code=1008)
         return
     active_connections += 1
-
+    await websocket.accept()
+    pubsub = await get_pubsub()
+    await pubsub.subscribe("orderbook_updates")
     try:
-        await websocket.accept()
-        logger.info("New WebSocket client connected to /ws/orderbook.")
-        
-        pubsub = redis_client.pubsub()
-        await pubsub.subscribe("orderbook_updates")
-        
-        try:
-            async for message in pubsub.listen():
-                if message["type"] == "message":
-                    try:
-                        await websocket.send_text(message["data"])
-                    except Exception:
-                        break
-        except Exception as e:
-            logger.error(f"WS client error: {e}")
-        finally:
-            try:
-                await pubsub.unsubscribe("orderbook_updates")
-                await pubsub.close()
-            except Exception:
-                pass
+        async for message in pubsub.listen():
+            if message["type"] == "message":
+                try:
+                    await websocket.send_text(message["data"])
+                except Exception:
+                    break
     except Exception as e:
-        logger.error(f"WS handshake error: {e}")
+        logger.error(f"WS client error: {e}")
     finally:
         active_connections -= 1
+        try:
+            await pubsub.unsubscribe("orderbook_updates")
+            await pubsub.aclose()
+        except Exception:
+            pass
 
 
 # Keep the original endpoint for backwards compatibility

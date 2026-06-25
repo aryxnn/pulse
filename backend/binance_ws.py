@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("binance_ws")
 
-BINANCE_WS_URL = "wss://stream.binance.com/ws/btcusdt@depth20@100ms"
+BINANCE_WS_URL = "wss://stream.binance.us:9443/ws/btcusdt@depth20@100ms"
 SYMBOL = "BTCUSDT"
 
 async def run_binance_ws():
