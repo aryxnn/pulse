@@ -99,6 +99,8 @@ async def websocket_orderbook(websocket: WebSocket):
         try:
             await pubsub.unsubscribe("orderbook_updates")
             await pubsub.aclose()
+            if hasattr(pubsub, "_redis_client"):
+                await pubsub._redis_client.aclose()
         except Exception:
             pass
 

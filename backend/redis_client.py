@@ -24,4 +24,7 @@ redis_client = _make_client()
 async def get_pubsub():
     """Returns a fresh dedicated pubsub connection — call once per WS client."""
     client = _make_client()
-    return client.pubsub()
+    pubsub = client.pubsub()
+    pubsub._redis_client = client
+    return pubsub
+
