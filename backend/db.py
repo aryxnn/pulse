@@ -11,7 +11,7 @@ pool = None
 async def init_db():
     global pool
     logger.info("Initializing database pool...")
-    pool = await asyncpg.create_pool(dsn=DATABASE_URL)
+    pool = await asyncpg.create_pool(dsn=DATABASE_URL, min_size=1, max_size=2)
     
     # Create the ohlcv table if it does not exist
     async with pool.acquire() as conn:
