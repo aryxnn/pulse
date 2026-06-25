@@ -4,9 +4,8 @@ import logging
 import time
 from datetime import datetime, timezone
 import websockets
-from redis_client import redis_client
-from db import insert_ohlcv
-import config
+from backend.redis_client import redis_client
+from backend.db import insert_ohlcv
 
 # Configure logging with timestamps
 logging.basicConfig(
@@ -15,21 +14,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger("binance_ws")
 
-BINANCE_WS_URL = "wss://stream.binance.us:9443/ws/btcusdt@depth20@100ms"
+BINANCE_WS_URL = "wss://stream.binance.com/ws/btcusdt@depth20@100ms"
 SYMBOL = "BTCUSDT"
 
 async def run_binance_ws():
     # Keep OHLCV aggregations across reconnects
     ohlcv_prices = []
     ohlcv_volumes = []
-    last_publish_time = 0.0
     last_db_write_time = time.time()
+
     retry_count = 0
     base_delay = 1.0
     max_delay = 30.0
-
-    order_book_bids = {}
-    order_book_asks = {}
 
     while True:
         try:
@@ -40,51 +36,14 @@ async def run_binance_ws():
 
                 async for message in ws:
                     try:
-                        # If no clients are connected, sleep to save Upstash command quotas
-                        if config.active_connections == 0:
-                            await asyncio.sleep(1.0)
-                            continue
-
-                        timestamp_now = time.time()
-                        if timestamp_now - last_publish_time < 0.25:
-                            continue
-                        last_publish_time = timestamp_now
-
                         data = json.loads(message)
                         
-                        # Parse bids and asks
+                        # Parse and sort bids (descending) and asks (ascending)
                         raw_bids = data.get("bids", [])
                         raw_asks = data.get("asks", [])
                         
-                        # Update bids dictionary
-                        for p, q in raw_bids:
-                            price_val = float(p)
-                            qty_val = float(q)
-                            if qty_val == 0.0:
-                                order_book_bids.pop(price_val, None)
-                            else:
-                                order_book_bids[price_val] = qty_val
-
-                        # Update asks dictionary
-                        for p, q in raw_asks:
-                            price_val = float(p)
-                            qty_val = float(q)
-                            if qty_val == 0.0:
-                                order_book_asks.pop(price_val, None)
-                            else:
-                                order_book_asks[price_val] = qty_val
-
-                        # Keep only top 20 bids (highest price)
-                        sorted_bid_prices = sorted(order_book_bids.keys(), reverse=True)[:20]
-                        order_book_bids = {p: order_book_bids[p] for p in sorted_bid_prices}
-
-                        # Keep only top 20 asks (lowest price)
-                        sorted_ask_prices = sorted(order_book_asks.keys())[:20]
-                        order_book_asks = {p: order_book_asks[p] for p in sorted_ask_prices}
-
-                        # Convert back to sorted lists for the payload
-                        bids = [[p, order_book_bids[p]] for p in sorted_bid_prices]
-                        asks = [[p, order_book_asks[p]] for p in sorted_ask_prices]
+                        bids = sorted([[float(p), float(q)] for p, q in raw_bids], key=lambda x: x[0], reverse=True)
+                        asks = sorted([[float(p), float(q)] for p, q in raw_asks], key=lambda x: x[0])
                         
                         if not bids or not asks:
                             continue
@@ -108,10 +67,6 @@ async def run_binance_ws():
                         # Record metrics for OHLCV database insertion
                         ohlcv_prices.append(mid_price)
                         ohlcv_volumes.append(bid_vol_sum + ask_vol_sum)
-                        # Cap to last 300 entries max (covers 60s at 4 updates/sec with buffer)
-                        if len(ohlcv_prices) > 300:
-                            ohlcv_prices = ohlcv_prices[-300:]
-                            ohlcv_volumes = ohlcv_volumes[-300:]
                         
                         # Payload preparation
                         timestamp_now = time.time()
@@ -149,17 +104,12 @@ async def run_binance_ws():
                                 
                                 db_timestamp = datetime.now(timezone.utc)
                                 try:
-                                    await asyncio.wait_for(
-                                        insert_ohlcv(SYMBOL, db_timestamp, open_px, high_px, low_px, close_px, avg_volume),
-                                        timeout=5.0
-                                    )
+                                    await insert_ohlcv(SYMBOL, db_timestamp, open_px, high_px, low_px, close_px, avg_volume)
                                     logger.info(f"Inserted OHLCV: Open={open_px:.2f}, High={high_px:.2f}, Low={low_px:.2f}, Close={close_px:.2f}, Vol={avg_volume:.2f}")
-                                except asyncio.TimeoutError:
-                                    logger.error("Timeout inserting OHLCV to DB (5.0s limit reached)")
                                 except Exception as e:
                                     logger.error(f"Error inserting OHLCV to DB: {e}")
                                     
-                            # Always reset — move these OUTSIDE the if ohlcv_prices block
+                            # Reset aggregation buffers
                             ohlcv_prices.clear()
                             ohlcv_volumes.clear()
                             last_db_write_time = timestamp_now

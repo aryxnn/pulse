@@ -9,7 +9,7 @@ const LiveTicker = () => {
 
   useEffect(() => {
     try {
-      const ws = new WebSocket(`${process.env.REACT_APP_WS_URL}/ws/orderbook`);
+      const ws = new WebSocket('ws://localhost:8000/ws/orderbook');
       wsRef.current = ws;
 
       ws.onopen = () => {

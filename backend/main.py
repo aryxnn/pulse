@@ -5,9 +5,9 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from db import init_db, close_db, get_ohlcv
-from binance_ws import run_binance_ws
-from redis_client import redis_client, get_pubsub
+from backend.db import init_db, close_db, get_ohlcv
+from backend.binance_ws import run_binance_ws
+from backend.redis_client import redis_client
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -32,27 +32,12 @@ async def lifespan(app: FastAPI):
     
     await close_db()
 
-# Required environment variables:
-# REDIS_URL — Upstash Redis URL with rediss:// prefix (TLS)
-# FRONTEND_URL — Vercel frontend URL (optional, for CORS)
-
-import config
-
 app = FastAPI(lifespan=lifespan)
-
-origins = [
-    "http://localhost:3000",
-    "https://pulse-frontend.vercel.app",
-    "https://pulse-blue-nine.vercel.app",
-]
-if config.FRONTEND_URL:
-    origins.append(config.FRONTEND_URL)
 
 # Allow CORS for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_origin_regex="https://.*\\.vercel\\.app",
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -70,40 +55,31 @@ async def get_orderbook():
         return json.loads(snapshot)
     return {"symbol": "BTCUSDT", "bids": [], "asks": [], "metrics": {}}
 
-active_connections = 0
-MAX_CONNECTIONS = 10
-
 @app.websocket("/ws/orderbook")
 async def websocket_orderbook(websocket: WebSocket):
-    global active_connections
-    if active_connections >= MAX_CONNECTIONS:
-        await websocket.close(code=1008)
-        return
-    active_connections += 1
-    config.active_connections = active_connections
     await websocket.accept()
-    pubsub = await get_pubsub()
+    logger.info("New WebSocket client connected to /ws/orderbook.")
+    
+    pubsub = redis_client.pubsub()
     await pubsub.subscribe("orderbook_updates")
+    
     try:
-        async for message in pubsub.listen():
-            if message["type"] == "message":
+        while True:
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            if message:
+                payload_str = message["data"]
                 try:
-                    await websocket.send_text(message["data"])
-                except Exception:
+                    await websocket.send_text(payload_str)
+                except Exception as e:
+                    logger.error(f"Error forwarding message to client: {e}")
                     break
-    except Exception as e:
-        logger.error(f"WS client error: {e}")
+            await asyncio.sleep(0.01)  # Cooperatively yield control
+            
+    except WebSocketDisconnect:
+        logger.info("WebSocket client disconnected from /ws/orderbook.")
     finally:
-        active_connections -= 1
-        config.active_connections = active_connections
-        try:
-            await pubsub.unsubscribe("orderbook_updates")
-            await pubsub.aclose()
-            if hasattr(pubsub, "_redis_client"):
-                await pubsub._redis_client.aclose()
-        except Exception:
-            pass
-
+        await pubsub.unsubscribe("orderbook_updates")
+        await pubsub.close()
 
 # Keep the original endpoint for backwards compatibility
 @app.websocket("/ws/orderbook/BTCUSDT")
