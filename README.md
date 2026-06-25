@@ -1,6 +1,6 @@
 # Pulse Terminal
 
-Pulse Terminal is a full-stack, containerized real-time cryptocurrency trading interface and market data platform. The system streams order book data from Binance WebSockets, processes and aggregates order book parameters, synchronizes state via Redis, and renders a high-performance terminal UI.
+Pulse Terminal is a full-stack, real-time cryptocurrency trading interface and market data platform. The system streams L2 order book data from Binance WebSockets, processes and aggregates order book parameters, synchronizes state via Redis, and renders a high-performance terminal UI.
 
 ## Architecture
 
@@ -8,7 +8,7 @@ Pulse Terminal is a full-stack, containerized real-time cryptocurrency trading i
                        +-------------------+
                        | Binance WebSocket |
                        +---------+---------+
-                                 | (wss://stream.binance.com)
+                                 | (wss://stream.binance.us)
                                  v
                        +---------+---------+
                        |  binance_ws.py    |
@@ -44,19 +44,9 @@ Pulse Terminal is a full-stack, containerized real-time cryptocurrency trading i
   * **Mid Price**: Average of best bid and best ask.
   * **Spread**: Difference between best ask and best bid.
   * **CVD (Cumulative Volume Delta)**: Volume differences (bid volume minus ask volume) across the top 20 price levels to track net buying and selling pressure.
-* **Upstash Redis Integration**: Uses TLS-secured Redis pub/sub broker to fan out updates to multiple clients.
+* **Redis Integration**: Uses a Redis pub/sub broker to fan out updates to multiple clients.
 * **Memory Optimization**: Employs capped local order book state tracking, pruning zero-quantity levels and restricting stored records to the top 20 entries.
-* **Vega Engine UI**: A dark-themed trading desk dashboard with proportional depth bars and instant visual updates.
-
----
-
-## Screenshots
-
-### Home Page
-![Home Page](assets/screenshots/HomePage.png)
-
-### Order Book
-![Order Book](assets/screenshots/OrderBook.png)
+* **Pulse UI**: A dark-themed trading desk dashboard with proportional depth bars and instant visual updates.
 
 ---
 
@@ -66,16 +56,16 @@ Pulse Terminal is a full-stack, containerized real-time cryptocurrency trading i
 | :--- | :--- |
 | **Backend** | Python 3.11, FastAPI, Uvicorn |
 | **Streaming** | Binance WebSocket, websockets library |
-| **Pub/Sub Broker** | Redis 7 (Alpine) |
-| **Database** | PostgreSQL 15 (Alpine), asyncpg |
+| **Pub/Sub Broker** | Redis 7 |
+| **Database** | PostgreSQL 15, asyncpg |
 | **Frontend** | React, Bootstrap |
 | **Infrastructure** | Docker, Docker Compose |
 
 ---
 
-## Getting Started
+## Local Development
 
-To spin up the local development environment containing the FastAPI backend, Redis, and PostgreSQL, run:
+To run the backend services (FastAPI, Redis, PostgreSQL) locally:
 
 ```bash
 docker compose up --build
@@ -84,6 +74,21 @@ docker compose up --build
 Start the React client separately from the project root:
 
 ```bash
-npm install
+npm install --legacy-peer-deps
 npm start
 ```
+
+---
+
+## Production Deployment
+
+To keep resource utilization under 512 MB:
+
+1. **Database**: Use a managed serverless PostgreSQL database (e.g., Supabase). Use the Supavisor connection pooler URI as the `DATABASE_URL`.
+2. **Redis**: Use a managed Redis instance (e.g., Render Key Value). Set the internal URL as `REDIS_URL`.
+3. **Backend**: Host on Render as a Web Service. Set environment variables:
+   - `DATABASE_URL`
+   - `REDIS_URL`
+4. **Frontend**: Host on Vercel as a static site. Set environment variables:
+   - `REACT_APP_API_BASE` (Backend URL)
+   - `REACT_APP_WS_URL` (Backend WebSocket URL)
