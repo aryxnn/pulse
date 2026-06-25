@@ -4,8 +4,8 @@ import logging
 import time
 from datetime import datetime, timezone
 import websockets
-from backend.redis_client import redis_client
-from backend.db import insert_ohlcv
+from redis_client import redis_client
+from db import insert_ohlcv
 
 # Configure logging with timestamps
 logging.basicConfig(

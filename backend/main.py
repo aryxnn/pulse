@@ -5,9 +5,9 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from backend.db import init_db, close_db, get_ohlcv
-from backend.binance_ws import run_binance_ws
-from backend.redis_client import redis_client
+from db import init_db, close_db, get_ohlcv
+from binance_ws import run_binance_ws
+from redis_client import redis_client
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
 # REDIS_URL — Upstash Redis URL with rediss:// prefix (TLS)
 # FRONTEND_URL — Vercel frontend URL (optional, for CORS)
 
-from backend.config import FRONTEND_URL
+from config import FRONTEND_URL
 
 app = FastAPI(lifespan=lifespan)
 

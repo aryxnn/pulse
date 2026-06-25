@@ -1,5 +1,5 @@
 import redis.asyncio as aioredis
-from backend.config import REDIS_URL
+from config import REDIS_URL
 
 # Fallback default if REDIS_URL is None
 active_redis_url = REDIS_URL or "redis://localhost:6379/0"
